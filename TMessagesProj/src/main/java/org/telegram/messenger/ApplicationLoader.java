@@ -380,12 +380,45 @@ public class ApplicationLoader extends Application {
     }
 
     // Local Push Service, TFoss implementation
+    private static final long PUSH_SERVICE_RESTART_INTERVAL = 15 * 60 * 1000; // 15 minutes
+
+    /**
+     * Tombstone resurrection: schedules the ONLY path that wakes the push service back up
+     * after the OS froze/killed the process. Exact + while-idle so Doze and OEM battery
+     * killers cannot postpone it forever. Only NotificationsService is started - the app
+     * UI/activities are never touched.
+     */
+    public static void schedulePushServiceRestart() {
+        AndroidUtilities.runOnUIThread(() -> {
+            try {
+                Log.d("TFOSS", "Scheduling push service restart check");
+                AlarmManager am = (AlarmManager) applicationContext.getSystemService(Context.ALARM_SERVICE);
+                Intent i = new Intent(applicationContext, NotificationsService.class);
+                pendingIntent = PendingIntent.getForegroundService(applicationContext, 0, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                am.cancel(pendingIntent);
+                try {
+                    // Exact + while-idle: not affected by Doze batching. If SCHEDULE_EXACT_ALARM
+                    // is revoked by the user (Android 13+), falls back to inexact repeating.
+                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + PUSH_SERVICE_RESTART_INTERVAL, pendingIntent);
+                } catch (Throwable ignore) {
+                    am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + PUSH_SERVICE_RESTART_INTERVAL, PUSH_SERVICE_RESTART_INTERVAL, pendingIntent);
+                }
+            } catch (Throwable e) {
+                Log.e("TFOSS", "Failed to schedule push service restart");
+            }
+        });
+    }
+
     public static void startPushService() {
         Utilities.stageQueue.postRunnable(ApplicationLoader::startPushServiceInternal);
     }
 
     private static void startPushServiceInternal() {
         if (PushListenerController.getProvider().hasServices()) {
+            return;
+        }
+        if (NotificationsService.isRunning()) {
+            // Already alive (restart broadcast from the service itself, or the alarm), skip restart
             return;
         }
         SharedPreferences preferences = MessagesController.getNotificationsSettings(UserConfig.selectedAccount);
@@ -404,20 +437,20 @@ public class ApplicationLoader extends Application {
             AndroidUtilities.runOnUIThread(() -> {
                 try {
                     Log.d("TFOSS", "Starting push service...");
-                    if (NaConfig.INSTANCE.getPushServiceTypeInAppDialog().Bool()) {
+                    // FGS is required on Android 8+ so the OS does not kill the push connection in background.
+                    try {
                         applicationContext.startForegroundService(new Intent(applicationContext, NotificationsService.class));
-                    } else {
-                        applicationContext.startService(new Intent(applicationContext, NotificationsService.class));
+                    } catch (Throwable e) {
+                        // OEMs (MIUI etc.) may block FGS from background; try the plain start
+                        try {
+                            applicationContext.startService(new Intent(applicationContext, NotificationsService.class));
+                        } catch (Throwable ignore) {
+                            Log.e("TFOSS", "Failed to start push service");
+                        }
                     }
-
-                    Log.d("TFOSS", "Trying to start push service every 10 minutes");
-                    // Telegram-FOSS: unconditionally enable push service
-                    AlarmManager am = (AlarmManager) applicationContext.getSystemService(Context.ALARM_SERVICE);
-                    Intent i = new Intent(applicationContext, NotificationsService.class);
-                    pendingIntent = PendingIntent.getBroadcast(applicationContext, 0, i, PendingIntent.FLAG_IMMUTABLE);
-
-                    am.cancel(pendingIntent);
-                    am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis(), 10 * 60 * 1000, pendingIntent);
+                    // Restart guard: if the process gets killed (SIGKILL), the OS won't restart a sticky
+                    // service on most OEM ROMs. This alarm is the tombstone-resurrection trigger.
+                    schedulePushServiceRestart();
                 } catch (Throwable e) {
                     Log.e("TFOSS", "Failed to start push service");
                 }
@@ -426,11 +459,11 @@ public class ApplicationLoader extends Application {
         } else AndroidUtilities.runOnUIThread(() -> {
             applicationContext.stopService(new Intent(applicationContext, NotificationsService.class));
 
-            PendingIntent pintent = PendingIntent.getService(applicationContext, 0, new Intent(applicationContext, NotificationsService.class), PendingIntent.FLAG_MUTABLE);
-            AlarmManager alarm = (AlarmManager)applicationContext.getSystemService(Context.ALARM_SERVICE);
-            alarm.cancel(pintent);
             if (pendingIntent != null) {
+                AlarmManager alarm = (AlarmManager)applicationContext.getSystemService(Context.ALARM_SERVICE);
+                // cancels the alarm registered via PendingIntent.getForegroundService() in the enable branch
                 alarm.cancel(pendingIntent);
+                pendingIntent = null;
             }
         });
     }

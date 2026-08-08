@@ -56,15 +56,26 @@ public class GooglePushListenerServiceProvider implements PushListenerController
                                 }
                                 SharedConfig.pushStringStatus = "__FIREBASE_FAILED__";
                                 PushListenerController.sendRegistrationToServer(getPushType(), null);
+                                // Fallback: without a token, Telegram cannot reach this device via FCM.
+                                // Start the local keep-alive push service so notifications still arrive.
+                                ApplicationLoader.startPushService();
                                 return;
                             }
                             String token = task.getResult();
                             if (!TextUtils.isEmpty(token)) {
                                 PushListenerController.sendRegistrationToServer(getPushType(), token);
+                            } else {
+                                SharedConfig.pushStringStatus = "__FIREBASE_FAILED__";
+                                PushListenerController.sendRegistrationToServer(getPushType(), null);
+                                ApplicationLoader.startPushService();
                             }
                         });
             } catch (Throwable e) {
                 FileLog.e(e);
+                SharedConfig.pushStringStatus = "__FIREBASE_FAILED__";
+                PushListenerController.sendRegistrationToServer(getPushType(), null);
+                // google-services.json missing or Firebase failed to init: fall back to local push
+                ApplicationLoader.startPushService();
             }
         });
     }

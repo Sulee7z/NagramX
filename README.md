@@ -37,6 +37,41 @@ Official APKs use the following Android signing certificate:
 
 4. Open the project in Android Studio to start building.
 
+## FCM Push Notifications (Important)
+
+FCM push **cannot work with the default `TELEGRAM_APP_ID = 6` (the official Telegram app id)**, even with a
+correct `google-services.json`. Telegram's servers deliver FCM pushes using the credentials uploaded for
+**your own** app in [my.telegram.org](https://my.telegram.org), and the official app id has no such credentials
+for your Firebase project — the push will silently never arrive.
+
+To get working FCM push:
+
+1. Create your own app at [my.telegram.org → API development tools](https://my.telegram.org/apps) (choose **Android** as platform).
+2. Put your own `api_id` / `api_hash` into `local.properties`:
+   ```properties
+   TELEGRAM_APP_ID=<your_api_id>
+   TELEGRAM_APP_HASH=<your_api_hash>
+   ```
+3. Create a Firebase project at [Firebase Console](https://console.firebase.google.com) and add an Android app with
+   the exact package name from `gradle.properties` (`APP_PACKAGE`). Download its `google-services.json` and replace
+   `TMessagesProj/google-services.json` (the one in the repo is only a placeholder).
+4. In your Firebase project open **Project settings → Service accounts → Generate new private key** (JSON file).
+5. On your app's page in my.telegram.org, click **Edit** → **FCM credentials** and upload that service-account JSON.
+6. Rebuild. After login, push should arrive via FCM.
+
+If your device has no Google Play Services (e.g. most Chinese ROMs), or FCM fails, the app automatically falls back
+to the **local keep-alive push service** (a background MTProto connection). That service now runs as a foreground
+service with a low-importance notification, restarts itself after being killed (15-min guard alarm), and is restored
+after reboot / app update. You can enable/disable it in Settings → Notifications → keep-alive service; disable it if
+you rely on FCM to save battery.
+
+**How the tombstone resurrection works:** when the OS freezes or kills the process, only `NotificationsService` is
+brought back — never the app UI. The 15-minute alarm is scheduled with `setExactAndAllowWhileIdle` so Doze cannot
+delay it, it is re-armed in `onTaskRemoved` (swiping the app away) and in `onDestroy`, and it is re-created after
+boot/update via `AppStartReceiver`. On aggressive ROMs (MIUI/HyperOS/ColorOS etc.) additionally allow the app in
+*Auto-start* and make it not kill it in *Battery → Background apps* — the notification channel `NagramX Push
+Service` can be muted but the channel itself must stay enabled for the FGS to protect the service.
+
 ## GitHub Actions Build
 
 1. Replace `TMessagesProj/release.keystore` with your keystore file.
