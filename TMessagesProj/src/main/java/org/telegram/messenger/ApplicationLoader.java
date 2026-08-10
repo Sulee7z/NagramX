@@ -304,6 +304,23 @@ public class ApplicationLoader extends Application {
             DownloadController.getInstance(a);
         }
         BillingController.getInstance().startConnection();
+
+        // Battery: register AFTER ConnectionsManager is initialized, so the
+        // foreground/background push-connection switching is safe to run.
+        ForegroundDetector.getInstance().addListener(new ForegroundDetector.Listener() {
+            @Override
+            public void onBecameForeground() {
+                // Main MTProto connection is alive while foreground - drop the
+                // redundant push connection to save battery/data.
+                updatePushConnectionForForeground(true);
+            }
+
+            @Override
+            public void onBecameBackground() {
+                updatePushConnectionForForeground(false);
+            }
+        });
+        updatePushConnectionForForeground(ForegroundDetector.getInstance().isForeground());
     }
 
     public ApplicationLoader() {
@@ -415,6 +432,31 @@ public class ApplicationLoader extends Application {
 
     public static void startPushService() {
         Utilities.stageQueue.postRunnable(ApplicationLoader::startPushServiceInternal);
+    }
+
+    // Battery: while the app is in the FOREGROUND the main MTProto connection is
+    // already alive, so the extra push connection (keep-alive pings every ~40s)
+    // is pure waste. Disable it in foreground, re-enable when going background.
+    public static void updatePushConnectionForForeground(boolean foreground) {
+        Utilities.stageQueue.postRunnable(() -> {
+            try {
+                SharedPreferences preferences = MessagesController.getNotificationsSettings(UserConfig.selectedAccount);
+                boolean pushEnabled;
+                if (preferences.contains("pushConnection")) {
+                    pushEnabled = preferences.getBoolean("pushConnection", false);
+                } else {
+                    pushEnabled = MessagesController.getMainSettings(UserConfig.selectedAccount).getBoolean("keepAliveService", false);
+                }
+                pushEnabled = pushEnabled && !foreground;
+                for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                    ConnectionsManager.getInstance(a).setPushConnectionEnabled(pushEnabled);
+                }
+                if (BuildVars.LOGS_ENABLED) {
+                    FileLog.d("update push connection: foreground=" + foreground + " enabled=" + pushEnabled);
+                }
+            } catch (Throwable ignore) {
+            }
+        });
     }
 
     private static void startPushServiceInternal() {
