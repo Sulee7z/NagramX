@@ -382,13 +382,18 @@ public class ApplicationLoader extends Application {
     }
 
     // Local Push Service, TFoss implementation
-    private static final long PUSH_SERVICE_RESTART_INTERVAL = 15 * 60 * 1000; // 15 minutes
+    // 30 minutes, INEXACT: the system batches inexact alarms together, so the real
+    // wake-up count is far lower than the nominal one. The :push process already
+    // resurrects the main process within seconds when it dies, so this alarm is only
+    // the last-resort when BOTH processes were killed - it does not need to be exact.
+    private static final long PUSH_SERVICE_RESTART_INTERVAL = 30 * 60 * 1000;
 
     /**
-     * Tombstone resurrection: schedules the ONLY path that wakes the push stack back up
-     * after the OS froze/killed every process. Exact + while-idle so Doze and OEM battery
-     * killers cannot postpone it forever. The alarm targets the :push process - it then
-     * wakes the main process (and its push connection) up if needed. The app UI is never
+     * Tombstone resurrection (battery-friendly): schedules the last-resort path that
+     * wakes the push stack back up after the OS froze/killed BOTH processes. Inexact
+     * + while-idle: the system batches it with other alarms instead of waking the
+     * device up 48+ times a day. The alarm targets the :push process - it then wakes
+     * the main process (and its push connection) up if needed. The app UI is never
      * touched.
      */
     public static void schedulePushServiceRestart() {
@@ -399,13 +404,9 @@ public class ApplicationLoader extends Application {
                 Intent i = new Intent(applicationContext, PushProcessService.class);
                 pendingIntent = PendingIntent.getForegroundService(applicationContext, 0, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
                 am.cancel(pendingIntent);
-                try {
-                    // Exact + while-idle: not affected by Doze batching. If SCHEDULE_EXACT_ALARM
-                    // is revoked by the user (Android 13+), falls back to inexact repeating.
-                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + PUSH_SERVICE_RESTART_INTERVAL, pendingIntent);
-                } catch (Throwable ignore) {
-                    am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + PUSH_SERVICE_RESTART_INTERVAL, PUSH_SERVICE_RESTART_INTERVAL, pendingIntent);
-                }
+                // Inexact repeating: Doze-friendly, system batches it. No exact-alarm
+                // permission needed, far fewer real wake-ups than setExactAndAllowWhileIdle.
+                am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + PUSH_SERVICE_RESTART_INTERVAL, PUSH_SERVICE_RESTART_INTERVAL, pendingIntent);
             } catch (Throwable e) {
                 Log.e("TFOSS", "Failed to schedule push service restart");
             }

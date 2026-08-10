@@ -72,7 +72,12 @@ public class PushProcessService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // On restart (alarm / sticky), make sure we are still foreground and bound.
+        // Alarm / sticky restart. Battery optimization: if we are already running and
+        // still bound to the main process, everything is fine - just return, do not
+        // re-run startForeground or wake the main process up again.
+        if (isRunning && bound) {
+            return START_STICKY;
+        }
         if (!isRunning) {
             isRunning = true;
         }
