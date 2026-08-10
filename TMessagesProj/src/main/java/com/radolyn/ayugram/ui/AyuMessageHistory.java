@@ -16,6 +16,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.EditText;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -44,6 +45,8 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
+import org.telegram.ui.ActionBar.ActionBarMenu;
+import org.telegram.ui.ActionBar.ActionBarMenuItem;
 import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
 import org.telegram.ui.ActionBar.ActionBarPopupWindow;
 import org.telegram.ui.ActionBar.Theme;
@@ -88,6 +91,9 @@ public class AyuMessageHistory extends NekoDelegateFragment {
     private ActionBarPopupWindow scrimPopupWindow;
     private final WindowInsetsStateHolder windowInsetsStateHolder = new WindowInsetsStateHolder(this::checkInsets);
     private String[] cachedAttachmentFileNames;
+    private ActionBarMenuItem searchItem;
+    private String searchQuery = "";
+    private final ArrayList<EditedMessage> filteredMessages = new ArrayList<>();
 
     public AyuMessageHistory(MessageObject messageObject) {
         this.messageObject = messageObject;
@@ -100,15 +106,18 @@ public class AyuMessageHistory extends NekoDelegateFragment {
         }
     }
 
+    @Override
+    protected int getBulletinBottomOffset() {
+        return windowInsetsStateHolder.getCurrentNavigationBarInset();
+    }
+
     private void updateHistory() {
         messages = AyuMessagesController.getInstance().getRevisions(getUserConfig().clientUserId, messageObject.messageOwner.dialog_id, messageObject.messageOwner.id);
         if (messages == null) {
             messages = new ArrayList<>();
         }
-        rowCount = messages.size();
         cacheAttachmentFileNames();
-        rebuildMessageObjects();
-        updateEmptyView();
+        applySearchFilter();
     }
 
     private void cacheAttachmentFileNames() {
@@ -143,6 +152,39 @@ public class AyuMessageHistory extends NekoDelegateFragment {
                 if (id == -1) {
                     finishFragment();
                 }
+            }
+        });
+
+        ActionBarMenu menu = actionBar.createMenu();
+        searchItem = menu.addItem(0, R.drawable.outline_header_search).setIsSearchField(true);
+        searchItem.setSearchPaddingStart(12);
+        searchItem.setSearchFieldHint(getString(R.string.Search));
+        searchItem.setActionBarMenuItemSearchListener(new ActionBarMenuItem.ActionBarMenuItemSearchListener() {
+            @Override
+            public void onSearchExpand() {
+                searchItem.getSearchField().setText(searchQuery);
+                searchItem.getSearchField().setSelection(searchItem.getSearchField().length());
+            }
+
+            @Override
+            public void onSearchCollapse() {
+                searchQuery = "";
+                applySearchFilter();
+            }
+
+            @Override
+            public void onTextChanged(EditText editText) {
+                String newQuery = editText.getText().toString();
+                if (!TextUtils.equals(searchQuery, newQuery)) {
+                    searchQuery = newQuery;
+                    applySearchFilter();
+                }
+            }
+
+            @Override
+            public void onSearchPressed(EditText editText) {
+                searchQuery = editText.getText().toString();
+                applySearchFilter();
             }
         });
 
@@ -225,6 +267,43 @@ public class AyuMessageHistory extends NekoDelegateFragment {
         return fragmentView;
     }
 
+    private void applySearchFilter() {
+        filteredMessages.clear();
+        if (TextUtils.isEmpty(searchQuery)) {
+            filteredMessages.addAll(messages);
+        } else {
+            String q = searchQuery.toLowerCase();
+            for (EditedMessage edited : messages) {
+                if (edited == null) {
+                    continue;
+                }
+                if (!TextUtils.isEmpty(edited.text) && edited.text.toLowerCase().contains(q)) {
+                    filteredMessages.add(edited);
+                    continue;
+                }
+                if (edited.mediaPath != null && edited.mediaPath.toLowerCase().contains(q)) {
+                    filteredMessages.add(edited);
+                    continue;
+                }
+                if (edited.fwdName != null && edited.fwdName.toLowerCase().contains(q)) {
+                    filteredMessages.add(edited);
+                }
+            }
+        }
+        rowCount = filteredMessages.size();
+        rebuildMessageObjects();
+        notifyAdapterDataChanged();
+        updateEmptyView();
+    }
+
+    @SuppressLint("NotifyDataSetChanged")
+    private void notifyAdapterDataChanged() {
+        var adapter = listView == null ? null : listView.getAdapter();
+        if (adapter != null) {
+            adapter.notifyDataSetChanged();
+        }
+    }
+
     private void updateEmptyView() {
         updateEmptyView(false);
     }
@@ -262,6 +341,11 @@ public class AyuMessageHistory extends NekoDelegateFragment {
         if (listView != null) {
             listView.setAdapter(null);
             listView.setOnItemClickListener((RecyclerListView.OnItemClickListener) null);
+        }
+
+        if (searchItem != null) {
+            searchItem.setActionBarMenuItemSearchListener(null);
+            searchItem = null;
         }
     }
 
@@ -382,14 +466,15 @@ public class AyuMessageHistory extends NekoDelegateFragment {
             final int pos = position;
             cell.setOnClickListener(v1 -> {
                 if (option == OPTION_DELETE) {
-                    EditedMessage edited = messages.get(pos);
+                    EditedMessage edited = filteredMessages.get(pos);
                     Utilities.globalQueue.postRunnable(() -> AyuMessagesController.getInstance().deleteRevision(edited.fakeId));
-                    if (pos >= 0 && pos < messages.size()) {
-                        messages.remove(pos);
+                    if (pos >= 0 && pos < filteredMessages.size()) {
+                        filteredMessages.remove(pos);
+                        messages.remove(edited);
                         if (pos < messageObjects.size()) {
                             messageObjects.remove(pos);
                         }
-                        rowCount = messages.size();
+                        rowCount = filteredMessages.size();
                         notifyMessageListItemRemoved(listView, pos);
                         updateEmptyView(rowCount == 0);
                     }
@@ -587,7 +672,7 @@ public class AyuMessageHistory extends NekoDelegateFragment {
             if (holder.getItemViewType() == 1) {
                 var ayuMessageDetailCell = (NekoMessageCell) holder.itemView;
 
-                var editedMessage = messages.get(position);
+                var editedMessage = filteredMessages.get(position);
                 MessageObject msg;
                 if (position >= 0 && position < messageObjects.size()) {
                     msg = messageObjects.get(position);
@@ -608,7 +693,7 @@ public class AyuMessageHistory extends NekoDelegateFragment {
 
         @Override
         public int getItemViewType(int position) {
-            return position >= 0 && position < messages.size() ? 1 : 0;
+            return position >= 0 && position < filteredMessages.size() ? 1 : 0;
         }
     }
 
@@ -860,11 +945,8 @@ public class AyuMessageHistory extends NekoDelegateFragment {
 
     private void rebuildMessageObjects() {
         messageObjects.clear();
-        if (messages == null) {
-            return;
-        }
-        for (int i = 0; i < messages.size(); i++) {
-            messageObjects.add(createMessageObject(messages.get(i)));
+        for (int i = 0; i < filteredMessages.size(); i++) {
+            messageObjects.add(createMessageObject(filteredMessages.get(i)));
         }
     }
 
