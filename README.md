@@ -82,12 +82,20 @@ service with a low-importance notification, restarts itself after being killed (
 after reboot / app update. You can enable/disable it in Settings → Notifications → keep-alive service; disable it if
 you rely on FCM to save battery.
 
-**How the tombstone resurrection works:** when the OS freezes or kills the process, only `NotificationsService` is
-brought back — never the app UI. The 15-minute alarm is scheduled with `setExactAndAllowWhileIdle` so Doze cannot
-delay it, it is re-armed in `onTaskRemoved` (swiping the app away) and in `onDestroy`, and it is re-created after
-boot/update via `AppStartReceiver`. On aggressive ROMs (MIUI/HyperOS/ColorOS etc.) additionally allow the app in
-*Auto-start* and make it not kill it in *Battery → Background apps* — the notification channel `NagramX Push
-Service` can be muted but the channel itself must stay enabled for the FGS to protect the service.
+**How the tombstone resurrection works:** the local push stack now runs in **two processes**:
+
+- The **main process** hosts `NotificationsService` and the actual MTProto push connection
+  (it must, because the connection and the SQLite database live in one process - running two
+  instances would corrupt the DB and create a duplicate Telegram session).
+- A lightweight **`:push` process** (`PushProcessService`) runs as a foreground service and
+  is not affected by the main process being killed. It binds to the main process; the moment
+  the main process dies (bind disconnects), it wakes it back up **within seconds**. A 15-minute
+  `setExactAndAllowWhileIdle` alarm remains as the final fallback in case both processes are
+  killed, and `onTaskRemoved` re-arms it immediately when the app is swiped away.
+
+On aggressive ROMs (MIUI/HyperOS/ColorOS etc.) additionally allow the app in *Auto-start* and
+make it not kill it in *Battery → Background apps* — the notification channels `NagramX Push
+Service` can be muted but must stay enabled for the FGS to protect the services.
 
 ## GitHub Actions Build
 

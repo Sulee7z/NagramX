@@ -642,11 +642,23 @@
             android:exported="true"
             android:foregroundServiceType="mediaPlayback"
         />
-        <service
+<service
             android:name=".NotificationsService"
             android:enabled="true"
             android:exported="true"
             android:foregroundServiceType="remoteMessaging"
+        />
+        <service
+            android:name=".PushProcessService"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":push"
+            android:foregroundServiceType="remoteMessaging"
+        />
+        <service
+            android:name=".PushBridgeService"
+            android:enabled="true"
+            android:exported="false"
         />
         <service
             android:name=".NotificationRepeat"

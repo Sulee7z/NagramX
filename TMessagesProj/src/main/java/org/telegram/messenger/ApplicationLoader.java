@@ -385,17 +385,18 @@ public class ApplicationLoader extends Application {
     private static final long PUSH_SERVICE_RESTART_INTERVAL = 15 * 60 * 1000; // 15 minutes
 
     /**
-     * Tombstone resurrection: schedules the ONLY path that wakes the push service back up
-     * after the OS froze/killed the process. Exact + while-idle so Doze and OEM battery
-     * killers cannot postpone it forever. Only NotificationsService is started - the app
-     * UI/activities are never touched.
+     * Tombstone resurrection: schedules the ONLY path that wakes the push stack back up
+     * after the OS froze/killed every process. Exact + while-idle so Doze and OEM battery
+     * killers cannot postpone it forever. The alarm targets the :push process - it then
+     * wakes the main process (and its push connection) up if needed. The app UI is never
+     * touched.
      */
     public static void schedulePushServiceRestart() {
         AndroidUtilities.runOnUIThread(() -> {
             try {
                 Log.d("TFOSS", "Scheduling push service restart check");
                 AlarmManager am = (AlarmManager) applicationContext.getSystemService(Context.ALARM_SERVICE);
-                Intent i = new Intent(applicationContext, NotificationsService.class);
+                Intent i = new Intent(applicationContext, PushProcessService.class);
                 pendingIntent = PendingIntent.getForegroundService(applicationContext, 0, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
                 am.cancel(pendingIntent);
                 try {
@@ -450,8 +451,18 @@ public class ApplicationLoader extends Application {
                             Log.e("TFOSS", "Failed to start push service");
                         }
                     }
-                    // Restart guard: if the process gets killed (SIGKILL), the OS won't restart a sticky
-                    // service on most OEM ROMs. This alarm is the tombstone-resurrection trigger.
+                    // Separate :push process: stays alive when the main process is killed,
+                    // and wakes the main process back up in seconds (instead of 15 minutes).
+                    try {
+                        applicationContext.startForegroundService(new Intent(applicationContext, PushProcessService.class));
+                    } catch (Throwable e) {
+                        try {
+                            applicationContext.startService(new Intent(applicationContext, PushProcessService.class));
+                        } catch (Throwable ignore) {
+                        }
+                    }
+                    // Restart guard: if everything gets killed (SIGKILL), the OS won't restart a
+                    // sticky service on most OEM ROMs. This alarm is the tombstone-resurrection trigger.
                     schedulePushServiceRestart();
                 } catch (Throwable e) {
                     Log.e("TFOSS", "Failed to start push service");
@@ -460,6 +471,7 @@ public class ApplicationLoader extends Application {
 
         } else AndroidUtilities.runOnUIThread(() -> {
             applicationContext.stopService(new Intent(applicationContext, NotificationsService.class));
+            applicationContext.stopService(new Intent(applicationContext, PushProcessService.class));
 
             if (pendingIntent != null) {
                 AlarmManager alarm = (AlarmManager)applicationContext.getSystemService(Context.ALARM_SERVICE);
