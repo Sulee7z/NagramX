@@ -382,6 +382,11 @@ public class ApplicationLoader extends Application {
                 super.onActivityStarted(activity);
                 if (wasInBackground) {
                     ensureCurrentNetworkGet(true);
+                    // After a long background period the MTProto connection may be
+                    // frozen/half-dead (Doze killed the socket, half-open TCP). Just
+                    // updating the network info does NOT reconnect. Force tgnet to
+                    // resume so messages refresh immediately when the app reopens.
+                    resumeConnections();
                 }
             }
         };
@@ -453,6 +458,25 @@ public class ApplicationLoader extends Application {
                 }
                 if (BuildVars.LOGS_ENABLED) {
                     FileLog.d("update push connection: foreground=" + foreground + " enabled=" + pushEnabled);
+                }
+            } catch (Throwable ignore) {
+            }
+        });
+    }
+
+    // Force tgnet to resume all connections (native_resumeNetwork) and refresh
+    // network state. Fixes "stale connection" after long background: Doze may
+    // freeze/kill the socket while tgnet still believes it is connected, so
+    // no reconnection ever happens until the user sends something.
+    public static void resumeConnections() {
+        Utilities.stageQueue.postRunnable(() -> {
+            try {
+                for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                    ConnectionsManager.getInstance(a).checkConnection();
+                    ConnectionsManager.getInstance(a).resumeNetworkMaybe();
+                }
+                if (BuildVars.LOGS_ENABLED) {
+                    FileLog.d("resume connections");
                 }
             } catch (Throwable ignore) {
             }
