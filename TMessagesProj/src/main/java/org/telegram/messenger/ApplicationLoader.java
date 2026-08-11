@@ -317,7 +317,10 @@ public class ApplicationLoader extends Application {
 
             @Override
             public void onBecameBackground() {
+                // re-enable the push connection AND resume a possibly frozen
+                // connection right away, so background push keeps working
                 updatePushConnectionForForeground(false);
+                resumeConnections();
             }
         });
         updatePushConnectionForForeground(ForegroundDetector.getInstance().isForeground());
@@ -404,19 +407,18 @@ public class ApplicationLoader extends Application {
     }
 
     // Local Push Service, TFoss implementation
-    // 30 minutes, INEXACT: the system batches inexact alarms together, so the real
-    // wake-up count is far lower than the nominal one. The :push process already
-    // resurrects the main process within seconds when it dies, so this alarm is only
-    // the last-resort when BOTH processes were killed - it does not need to be exact.
+    // 30 minutes, EXACT + while-idle: Doze cannot postpone it for hours. If both
+    // processes were killed this alarm is the ONLY thing that brings push back,
+    // so it must actually fire on time. 30 min = 48 wake-ups/day worst case, far
+    // less than the original 15 min (96/day), still reliable.
     private static final long PUSH_SERVICE_RESTART_INTERVAL = 30 * 60 * 1000;
 
     /**
-     * Tombstone resurrection (battery-friendly): schedules the last-resort path that
-     * wakes the push stack back up after the OS froze/killed BOTH processes. Inexact
-     * + while-idle: the system batches it with other alarms instead of waking the
-     * device up 48+ times a day. The alarm targets the :push process - it then wakes
-     * the main process (and its push connection) up if needed. The app UI is never
-     * touched.
+     * Tombstone resurrection: schedules the last-resort path that wakes the push
+     * stack back up after the OS froze/killed BOTH processes. Exact + while-idle:
+     * the system is not allowed to postpone it for hours under Doze. The alarm
+     * targets the :push process - it then wakes the main process (and forces a
+     * connection resume) if needed. The app UI is never touched.
      */
     public static void schedulePushServiceRestart() {
         AndroidUtilities.runOnUIThread(() -> {
@@ -426,9 +428,14 @@ public class ApplicationLoader extends Application {
                 Intent i = new Intent(applicationContext, PushProcessService.class);
                 pendingIntent = PendingIntent.getForegroundService(applicationContext, 0, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
                 am.cancel(pendingIntent);
-                // Inexact repeating: Doze-friendly, system batches it. No exact-alarm
-                // permission needed, far fewer real wake-ups than setExactAndAllowWhileIdle.
-                am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + PUSH_SERVICE_RESTART_INTERVAL, PUSH_SERVICE_RESTART_INTERVAL, pendingIntent);
+                try {
+                    // Exact + while-idle: fires on time even in Doze (max once per
+                    // 9 min per app, 30 min is fine). Without it, an inexact alarm
+                    // can be deferred for HOURS in Doze -> no push for hours.
+                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + PUSH_SERVICE_RESTART_INTERVAL, pendingIntent);
+                } catch (Throwable ignore) {
+                    am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + PUSH_SERVICE_RESTART_INTERVAL, PUSH_SERVICE_RESTART_INTERVAL, pendingIntent);
+                }
             } catch (Throwable e) {
                 Log.e("TFOSS", "Failed to schedule push service restart");
             }

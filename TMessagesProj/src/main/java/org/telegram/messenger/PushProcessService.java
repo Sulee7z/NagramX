@@ -72,17 +72,14 @@ public class PushProcessService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // Alarm / sticky restart. Battery optimization: if we are already running and
-        // still bound to the main process, everything is fine - just return, do not
-        // re-run startForeground or wake the main process up again.
-        if (isRunning && bound) {
-            return START_STICKY;
-        }
+        // Alarm / sticky restart. Always wake the main process: its
+        // onStartCommand calls resumeConnections(), which is the periodic
+        // connection-health check that fixes frozen sockets after long
+        // background periods (this is the main reason push dies silently).
         if (!isRunning) {
             isRunning = true;
         }
         startAsForeground();
-        // ensure the main process push connection exists whenever we come up
         wakeUpMainProcess();
         if (!bound) {
             bindToMainProcess();
