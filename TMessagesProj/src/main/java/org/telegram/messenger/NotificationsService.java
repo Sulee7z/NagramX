@@ -77,6 +77,9 @@ public class NotificationsService extends Service {
         // background period the socket is often frozen while tgnet still thinks
         // it is connected, which silently kills push delivery.
         ApplicationLoader.resumeConnections();
+        // The guard alarm is one-shot; re-arm it so the health check chain
+        // keeps going even if the :push process was not started.
+        ApplicationLoader.schedulePushServiceRestart();
         return START_STICKY;
     }
 

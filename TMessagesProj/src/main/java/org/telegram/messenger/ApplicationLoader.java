@@ -407,11 +407,12 @@ public class ApplicationLoader extends Application {
     }
 
     // Local Push Service, TFoss implementation
-    // 30 minutes, EXACT + while-idle: Doze cannot postpone it for hours. If both
+    // 60 minutes, EXACT + while-idle: Doze cannot postpone it for hours. If both
     // processes were killed this alarm is the ONLY thing that brings push back,
-    // so it must actually fire on time. 30 min = 48 wake-ups/day worst case, far
-    // less than the original 15 min (96/day), still reliable.
-    private static final long PUSH_SERVICE_RESTART_INTERVAL = 30 * 60 * 1000;
+    // so it must actually fire on time. 60 min = 24 wake-ups/day worst case.
+    // Real-world breakage starts after 3+ hours of idle, so a 60-min health
+    // check catches a dying connection before push is actually lost.
+    private static final long PUSH_SERVICE_RESTART_INTERVAL = 60 * 60 * 1000;
 
     /**
      * Tombstone resurrection: schedules the last-resort path that wakes the push

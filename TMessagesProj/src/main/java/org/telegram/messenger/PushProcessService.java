@@ -84,6 +84,9 @@ public class PushProcessService extends Service {
         if (!bound) {
             bindToMainProcess();
         }
+        // The guard alarm is one-shot (setExactAndAllowWhileIdle is not repeating):
+        // re-arm the next health check here, otherwise it never fires again.
+        ApplicationLoader.schedulePushServiceRestart();
         return START_STICKY;
     }
 
