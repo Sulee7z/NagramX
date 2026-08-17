@@ -305,25 +305,26 @@ public class ApplicationLoader extends Application {
         }
         BillingController.getInstance().startConnection();
 
-        // Battery: register AFTER ConnectionsManager is initialized, so the
-        // foreground/background push-connection switching is safe to run.
+        // Push connection must stay ALWAYS enabled (TFOSS original behavior).
+        // Dynamically disabling it via setPushConnectionEnabled(false) in
+        // foreground broke background push entirely: tgnet's push connection is
+        // not a separate spare socket - disabling it leaves the app with no
+        // background channel at all. We only resume connections on background
+        // transitions to fix frozen sockets.
         ForegroundDetector.getInstance().addListener(new ForegroundDetector.Listener() {
             @Override
             public void onBecameForeground() {
-                // Main MTProto connection is alive while foreground - drop the
-                // redundant push connection to save battery/data.
-                updatePushConnectionForForeground(true);
+                // nothing: connection resume on foreground is handled in
+                // onActivityStarted -> resumeConnections()
             }
 
             @Override
             public void onBecameBackground() {
-                // re-enable the push connection AND resume a possibly frozen
-                // connection right away, so background push keeps working
-                updatePushConnectionForForeground(false);
+                // resume a possibly frozen connection right away, so background
+                // push keeps working
                 resumeConnections();
             }
         });
-        updatePushConnectionForForeground(ForegroundDetector.getInstance().isForeground());
     }
 
     public ApplicationLoader() {
@@ -447,31 +448,6 @@ public class ApplicationLoader extends Application {
         Utilities.stageQueue.postRunnable(ApplicationLoader::startPushServiceInternal);
     }
 
-    // Battery: while the app is in the FOREGROUND the main MTProto connection is
-    // already alive, so the extra push connection (keep-alive pings every ~40s)
-    // is pure waste. Disable it in foreground, re-enable when going background.
-    public static void updatePushConnectionForForeground(boolean foreground) {
-        Utilities.stageQueue.postRunnable(() -> {
-            try {
-                SharedPreferences preferences = MessagesController.getNotificationsSettings(UserConfig.selectedAccount);
-                boolean pushEnabled;
-                if (preferences.contains("pushConnection")) {
-                    pushEnabled = preferences.getBoolean("pushConnection", false);
-                } else {
-                    pushEnabled = MessagesController.getMainSettings(UserConfig.selectedAccount).getBoolean("keepAliveService", false);
-                }
-                pushEnabled = pushEnabled && !foreground;
-                for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-                    ConnectionsManager.getInstance(a).setPushConnectionEnabled(pushEnabled);
-                }
-                if (BuildVars.LOGS_ENABLED) {
-                    FileLog.d("update push connection: foreground=" + foreground + " enabled=" + pushEnabled);
-                }
-            } catch (Throwable ignore) {
-            }
-        });
-    }
-
     // Force tgnet to resume all connections (native_resumeNetwork) and refresh
     // network state. Fixes "stale connection" after long background: Doze may
     // freeze/kill the socket while tgnet still believes it is connected, so
@@ -479,7 +455,16 @@ public class ApplicationLoader extends Application {
     public static void resumeConnections() {
         Utilities.stageQueue.postRunnable(() -> {
             try {
+                if (!applicationInited) {
+                    // ConnectionsManager is not initialized yet; a premature
+                    // native_init would use wrong parameters. The normal init
+                    // flow connects by itself.
+                    return;
+                }
                 for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                    if (!UserConfig.getInstance(a).isClientActivated()) {
+                        continue;
+                    }
                     ConnectionsManager.getInstance(a).checkConnection();
                     ConnectionsManager.getInstance(a).resumeNetworkMaybe();
                 }
