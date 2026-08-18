@@ -73,9 +73,11 @@ public class PushProcessService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         // Alarm / sticky restart. Always wake the main process: its
-        // onStartCommand calls resumeConnections(), which is the periodic
-        // connection-health check that fixes frozen sockets after long
-        // background periods (this is the main reason push dies silently).
+        // onStartCommand calls resumeConnections(), which is the connection
+        // health check that fixes frozen sockets.
+        // NOTE: this does NOT re-arm the alarm - the one-shot resurrection
+        // alarm is only armed on real process death (onTaskRemoved/onDestroy),
+        // so under Cirno freezing there are no periodic wake-ups at all.
         if (!isRunning) {
             isRunning = true;
         }
@@ -84,9 +86,6 @@ public class PushProcessService extends Service {
         if (!bound) {
             bindToMainProcess();
         }
-        // The guard alarm is one-shot (setExactAndAllowWhileIdle is not repeating):
-        // re-arm the next health check here, otherwise it never fires again.
-        ApplicationLoader.schedulePushServiceRestart();
         return START_STICKY;
     }
 

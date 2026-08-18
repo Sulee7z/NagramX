@@ -73,13 +73,10 @@ public class NotificationsService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         // Every time this service is (re)started - by the :push process, by the
-        // guard alarm, by boot - force tgnet to resume/reconnect. After a long
-        // background period the socket is often frozen while tgnet still thinks
-        // it is connected, which silently kills push delivery.
+        // one-shot resurrection alarm, by boot - force tgnet to resume/reconnect.
+        // After a long background period the socket is often frozen while tgnet
+        // still thinks it is connected, which silently kills push delivery.
         ApplicationLoader.resumeConnections();
-        // The guard alarm is one-shot; re-arm it so the health check chain
-        // keeps going even if the :push process was not started.
-        ApplicationLoader.schedulePushServiceRestart();
         return START_STICKY;
     }
 
