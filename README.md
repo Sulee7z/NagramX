@@ -106,11 +106,11 @@ notification.
 Setup in Cirno:
 
 1. Open Cirno → app list → **NagramX**.
-2. Enable **Allow network message** (允许网络消息 / keep-connection) — this keeps the MTProto
-   push socket alive while the app is frozen, so incoming messages trigger a temporary unfreeze,
-   NagramX shows the notification, then it is frozen again.
-3. (Recommended) Enable a periodic **unfreeze interval** so the 60-minute guard alarm can also
-   sync messages if the socket was lost (e.g. after the network switched).
+2. Enable **NetReceive unfreeze** (网络解冻) — this is the "keep connection + unfreeze on
+   network message" switch (it maps to the `ALLOW_NETWORK_MESSAGE` capability). While enabled,
+   Cirno keeps the app's MTProto push socket alive during freezing, and an incoming message
+   temporarily unfreezes the app so the notification is shown, then freezes it again.
+   Note: this requires kernel support (ReKernel, or Hans/Millet on Xiaomi/Huawei).
 
 How it works: the local push connection stays alive (never dynamically disabled), the 60-minute
 exact alarm is the fallback sync, and `resumeConnections()` forces tgnet to rebuild any frozen
