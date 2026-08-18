@@ -408,17 +408,19 @@ public class ApplicationLoader extends Application {
     }
 
     // Local Push Service, TFoss implementation
-    // ONE-SHOT alarm, scheduled ONLY when a process really died (onTaskRemoved /
-    // onDestroy). It is never armed during normal background operation, so under
-    // Cirno tombstone freezing there is NO periodic wake-up: push is purely
-    // event-driven (incoming network message -> Cirno unfreezes -> notification).
-    // This alarm is the last-resort resurrection when both processes were killed.
-    private static final long PUSH_SERVICE_RESTART_INTERVAL = 30 * 60 * 1000;
+    // 60 minutes, EXACT + while-idle: Doze cannot postpone it for hours. If both
+    // processes were killed this alarm is the ONLY thing that brings push back,
+    // so it must actually fire on time. 60 min = 24 wake-ups/day worst case.
+    // Real-world breakage starts after 3+ hours of idle, so a 60-min health
+    // check catches a dying connection before push is actually lost.
+    private static final long PUSH_SERVICE_RESTART_INTERVAL = 60 * 60 * 1000;
 
     /**
-     * Last-resort resurrection, armed only after a real process death. Exact +
-     * while-idle so Doze cannot postpone it. NOT repeated - the chain stops after
-     * one fire, so it never causes periodic wake-ups in normal (frozen) operation.
+     * Tombstone resurrection: schedules the last-resort path that wakes the push
+     * stack back up after the OS froze/killed BOTH processes. Exact + while-idle:
+     * the system is not allowed to postpone it for hours under Doze. The alarm
+     * targets the :push process - it then wakes the main process (and forces a
+     * connection resume) if needed. The app UI is never touched.
      */
     public static void schedulePushServiceRestart() {
         AndroidUtilities.runOnUIThread(() -> {
@@ -429,9 +431,12 @@ public class ApplicationLoader extends Application {
                 pendingIntent = PendingIntent.getForegroundService(applicationContext, 0, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
                 am.cancel(pendingIntent);
                 try {
+                    // Exact + while-idle: fires on time even in Doze (max once per
+                    // 9 min per app, 30 min is fine). Without it, an inexact alarm
+                    // can be deferred for HOURS in Doze -> no push for hours.
                     am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + PUSH_SERVICE_RESTART_INTERVAL, pendingIntent);
                 } catch (Throwable ignore) {
-                    am.set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + PUSH_SERVICE_RESTART_INTERVAL, pendingIntent);
+                    am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + PUSH_SERVICE_RESTART_INTERVAL, PUSH_SERVICE_RESTART_INTERVAL, pendingIntent);
                 }
             } catch (Throwable e) {
                 Log.e("TFOSS", "Failed to schedule push service restart");
@@ -516,11 +521,9 @@ public class ApplicationLoader extends Application {
                         } catch (Throwable ignore) {
                         }
                     }
-                    // NOTE: no periodic alarm here on purpose. Under Cirno freezing the
-                    // app must stay fully silent (pure network-message unfreeze); a
-                    // repeating alarm would wake it up periodically and waste CPU.
-                    // The one-shot resurrection alarm is armed only when a process
-                    // actually dies (onTaskRemoved / onDestroy).
+                    // Restart guard: if everything gets killed (SIGKILL), the OS won't restart a
+                    // sticky service on most OEM ROMs. This alarm is the tombstone-resurrection trigger.
+                    schedulePushServiceRestart();
                 } catch (Throwable e) {
                     Log.e("TFOSS", "Failed to start push service");
                 }
