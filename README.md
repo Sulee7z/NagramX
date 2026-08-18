@@ -97,6 +97,26 @@ On aggressive ROMs (MIUI/HyperOS/ColorOS etc.) additionally allow the app in *Au
 make it not kill it in *Battery → Background apps* — the notification channels `NagramX Push
 Service` can be muted but must stay enabled for the FGS to protect the services.
 
+### Cirno (tombstone freezer) compatibility
+
+NagramX works with [Cirno](https://github.com/Adkimsm/Cirno) exactly like WeChat's tombstone:
+frozen in background (zero CPU) and **network-unfrozen on incoming messages** to show the
+notification.
+
+Setup in Cirno:
+
+1. Open Cirno → app list → **NagramX**.
+2. Enable **Allow network message** (允许网络消息 / keep-connection) — this keeps the MTProto
+   push socket alive while the app is frozen, so incoming messages trigger a temporary unfreeze,
+   NagramX shows the notification, then it is frozen again.
+3. (Recommended) Enable a periodic **unfreeze interval** so the 60-minute guard alarm can also
+   sync messages if the socket was lost (e.g. after the network switched).
+
+How it works: the local push connection stays alive (never dynamically disabled), the 60-minute
+exact alarm is the fallback sync, and `resumeConnections()` forces tgnet to rebuild any frozen
+socket. When Cirno unfreezes the app for an incoming message, tgnet receives the push, decrypts
+it and posts the notification within the unfreeze window.
+
 ## GitHub Actions Build
 
 1. Replace `TMessagesProj/release.keystore` with your keystore file.

@@ -134,7 +134,10 @@ android {
 
     signingConfigs {
         release {
-            storeFile project.file('release.keystore')
+            // KEYSTORE_FILE (in local.properties) overrides the default
+            // release.keystore, so a custom keystore can be used without
+            // touching the committed one.
+            storeFile project.file(properties?.getProperty('KEYSTORE_FILE') ?: 'release.keystore')
             storePassword keystorePwd
             keyAlias alias
             keyPassword pwd
