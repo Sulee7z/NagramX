@@ -112,10 +112,15 @@ Setup in Cirno:
    temporarily unfreezes the app so the notification is shown, then freezes it again.
    Note: this requires kernel support (ReKernel, or Hans/Millet on Xiaomi/Huawei).
 
-How it works: the local push connection stays alive (never dynamically disabled), the 60-minute
-exact alarm is the fallback sync, and `resumeConnections()` forces tgnet to rebuild any frozen
-socket. When Cirno unfreezes the app for an incoming message, tgnet receives the push, decrypts
-it and posts the notification within the unfreeze window.
+Push is **purely event-driven**: while frozen, the process is SIGSTOP-ed (zero CPU, no
+heartbeat, no alarms — nothing runs). Only an incoming network message unfreezes the app.
+The one-shot resurrection alarm is armed **only** when a process is really killed (swiped
+away from recents / OS kill), never during normal freezing.
+
+Caveat: while frozen, no keep-alive pings are sent, so on mobile networks a NAT/operator
+idle timeout can drop the TCP connection after a long freeze. In that case open the app
+once to reconnect (Wi-Fi NAT timeouts are typically hours, so this mostly affects
+cellular data with very long freezes).
 
 ## GitHub Actions Build
 
