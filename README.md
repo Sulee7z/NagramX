@@ -1,13 +1,14 @@
 # Nagram X
-[![Crowdin](https://badges.crowdin.net/NagramX/localized.svg)](https://crowdin.com/project/NagramX)  
-A variant of [Nagram](https://github.com/NextAlone/Nagram) with additional features.
 
-## Download
+> [!IMPORTANT]
+> This project is archived and no longer maintained. No further updates, bug fixes, or support will be provided. The source code and existing releases remain available for reference and for anyone who wishes to continue development in a fork.
 
-Latest versions are available through:
-* [Telegram Channel](https://t.me/NagramX) (Latest Beta)
-* [GitHub Actions](https://github.com/risin42/NagramX/actions/workflows/staging.yml) (CI Artifacts)
-* [GitHub Releases](https://github.com/risin42/NagramX/releases) (Latest Stable)
+## Archived Downloads
+
+Previously published versions remain available through:
+
+* [Telegram Channel](https://t.me/NagramX)
+* [GitHub Releases](https://github.com/risin42/NagramX/releases)
 
 ## Verify APK
 
@@ -123,6 +124,8 @@ once to reconnect (Wi-Fi NAT timeouts are typically hours, so this mostly affect
 cellular data with very long freezes).
 
 ## GitHub Actions Build
+
+The workflow can be used from a fork of this repository.
 
 1. Replace `TMessagesProj/release.keystore` with your keystore file.
 

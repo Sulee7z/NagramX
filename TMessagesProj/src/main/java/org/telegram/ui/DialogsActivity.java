@@ -93,7 +93,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.LinearSmoothScrollerCustom;
+import org.telegram.ui.recyclerview.LinearSmoothScrollerCustom;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager.widget.ViewPager;
 
@@ -3975,9 +3975,16 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 public void onTabSelected(FilterTabsView.Tab tab, boolean forward, boolean animated) {
                     if (actionBar == null) return;
                     if (NaConfig.INSTANCE.getFolderNameAsTitle().Bool()) {
-                        actionBar.setTitleAnimatedX(tab.isDefault ? actionBarTitleNax : EmojiHelper.removeEmojiSpans(tab.realTitle), tab.isDefault ? statusDrawable : null, forward, 250);
+                        CharSequence title = tab.isDefault ? actionBarTitleNax : EmojiHelper.removeEmojiSpans(tab.realTitle);
+                        actionBar.setTitleAnimatedX(title, tab.isDefault ? statusDrawable : null, forward, 250);
+                        if (dialogStoriesCell != null) {
+                            dialogStoriesCell.setLogoTitle(title, tab.isDefault, animated, forward);
+                        }
                     } else {
                         actionBar.setTitle(actionBarTitleNax, statusDrawable);
+                        if (dialogStoriesCell != null) {
+                            dialogStoriesCell.setLogoTitle(actionBarTitleNax, true, animated, forward);
+                        }
                     }
                 }
             });
@@ -5480,6 +5487,16 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         };
         dialogStoriesCell.setActionBar(actionBar);
+        if (NaConfig.INSTANCE.getFolderNameAsTitle().Bool() && filterTabsView != null) {
+            for (int i = 0; i < filterTabsView.getTabsCount(); i++) {
+                FilterTabsView.Tab tab = filterTabsView.getTab(i);
+                if (tab != null && tab.id == filterTabsView.getCurrentTabId() && !tab.isDefault) {
+                    dialogStoriesCell.setLogoTitle(EmojiHelper.removeEmojiSpans(tab.realTitle), false, false, false);
+                    break;
+                }
+            }
+        }
+        dialogStoriesCell.updateStatus(UserConfig.getInstance(currentAccount).getCurrentUser(), false);
         dialogStoriesCell.setMenuItemsOffset(isArchive() ? dp(68) : dpf2(16.66f));
         dialogStoriesCell.allowGlobalUpdates = false;
         dialogStoriesCell.setVisibility(View.GONE);
@@ -5509,7 +5526,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         undoView[1] = null;
 
         if (hasMainTabs) {
-            actionBar.getTitlesContainer().setTranslationX(dp(4));
+            actionBar.getTitlesContainer().setTranslationX(NaConfig.INSTANCE.getCenterActionBarTitle().Bool() && NaConfig.INSTANCE.getCenterActionBarTitleType().Int() != 3 ? 0 : dp(4));
             actionBar.setTitleColor(getThemedColor(Theme.key_telegram_color_dialogsLogo));
         }
 
@@ -6036,7 +6053,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             AndroidUtilities.rectTmp2.offset((int) actionBarTitle.getX(), (int) actionBarTitle.getY());
             yoff = -(actionBar.getHeight() - AndroidUtilities.rectTmp2.centerY()) - dp(16);
             xoff = AndroidUtilities.rectTmp2.centerX() - dp(16);
-            xoff += dp(4);
+            xoff += Math.round(actionBar.getTitlesContainer().getTranslationX());
             if (animatedStatusView != null) {
                 animatedStatusView.translate(AndroidUtilities.rectTmp2.centerX(), AndroidUtilities.rectTmp2.centerY());
             }
@@ -7124,6 +7141,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 filterTabsView.resetTabId();
 
                 // NagramX: use folder name as title
+                if (dialogStoriesCell != null) {
+                    dialogStoriesCell.setLogoTitle(actionBarTitleNax, true, animated && NaConfig.INSTANCE.getFolderNameAsTitle().Bool(), false);
+                }
                 if (!actionBarTitleNax.equals(actionBar.getTitle())) {
                     if (NaConfig.INSTANCE.getFolderNameAsTitle().Bool()) {
                         actionBar.setTitleAnimatedX(actionBarTitleNax, statusDrawable, false, 250);

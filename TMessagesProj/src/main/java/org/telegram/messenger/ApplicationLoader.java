@@ -93,6 +93,25 @@ public class ApplicationLoader extends Application {
     public static boolean canDrawOverlays;
     public static volatile long mainInterfacePausedStageQueueTime;
 
+    // Refresh the screen state from the PowerManager directly. Used before
+    // processing a push/updates while the app was frozen (Cirno tombstone):
+    // the app may have missed the SCREEN_OFF broadcast, leaving isScreenOn
+    // stale = true, which suppresses notifications for the opened dialog.
+    public static void updateScreenState() {
+        try {
+            PowerManager pm = (PowerManager) applicationContext.getSystemService(Context.POWER_SERVICE);
+            if (pm == null) {
+                return;
+            }
+            boolean on = pm.isScreenOn();
+            if (Build.VERSION.SDK_INT >= 20) {
+                on = pm.isInteractive();
+            }
+            isScreenOn = on;
+        } catch (Throwable ignore) {
+        }
+    }
+
     private static PushListenerController.IPushListenerServiceProvider pushProvider;
     private static IMapsProvider mapsProvider;
     private static ILocationServiceProvider locationServiceProvider;
@@ -521,9 +540,11 @@ public class ApplicationLoader extends Application {
                         } catch (Throwable ignore) {
                         }
                     }
-                    // Restart guard: if everything gets killed (SIGKILL), the OS won't restart a
-                    // sticky service on most OEM ROMs. This alarm is the tombstone-resurrection trigger.
-                    schedulePushServiceRestart();
+                    // NOTE: no periodic alarm here on purpose. Under Cirno freezing the
+                    // app must stay fully silent (pure network-message unfreeze); a
+                    // repeating alarm would wake it up periodically and waste CPU.
+                    // The one-shot resurrection alarm is armed only when a process
+                    // actually dies (onTaskRemoved / onDestroy).
                 } catch (Throwable e) {
                     Log.e("TFOSS", "Failed to start push service");
                 }

@@ -105,6 +105,10 @@ public class PushListenerController {
             if (BuildVars.LOGS_ENABLED) {
                 FileLog.d(tag + " PRE INIT APP");
             }
+            // Refresh screen state before processing: if the app was frozen
+            // (Cirno tombstone) it may have missed the SCREEN_OFF broadcast,
+            // and a stale isScreenOn=true would suppress the notification.
+            ApplicationLoader.updateScreenState();
             ApplicationLoader.postInitApplication();
             if (BuildVars.LOGS_ENABLED) {
                 FileLog.d(tag + " POST INIT APP");
